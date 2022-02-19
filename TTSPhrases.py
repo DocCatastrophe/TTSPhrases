@@ -32,7 +32,7 @@ def main():
     macro_button_size = (30,2)
     assign_mode_button_color = ('#000000', '#ffdddd')
     font_to_use = "Helvetica "
-    font_size = 24
+    font_size = 20
     font_string = font_to_use + str( int( font_size ) )
     voice_list = get_voice_list()
     preferred_speaker = 'Katherine'
