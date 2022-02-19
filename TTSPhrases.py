@@ -3,6 +3,7 @@ from subprocess import check_output
 from subprocess import call
 import json
 import re
+import textwrap
 
 # To accomplish the text to speech aspect, this script uses the command line version of Balabolka
 # http://balabolka.site/bconsole.htm
@@ -29,7 +30,7 @@ def get_voice_list():
 
 def main():
     # Global constants that make sense to leave in one accessible place.
-    macro_button_size = (30,2)
+    macro_button_size = (24,2)
     assign_mode_button_color = ('#000000', '#ffdddd')
     font_to_use = "Helvetica "
     font_size = 20
@@ -41,7 +42,8 @@ def main():
     speaker_name = next((s for s in voice_list if preferred_speaker in s), voice_list[0] if len(voice_list) > 0 else 'Katherine' )
     
     # Add a touch of color
-    sg.theme('DarkAmber')   
+    #sg.theme('DarkAmber')   
+    sg.theme('BrightColors')   
     
     # Build our initial phrasebook. If there's a phrase JSON file in our directory already, just grab that.
     # Otherwise, use our stock set to populate the columns. 
@@ -66,7 +68,7 @@ def main():
 
     col_vo_sel =    [   [ sg.Text('Voice:', font=font_string), sg.Combo(voice_list, default_value=speaker_name, expand_y=True, key='-VOICE-SELECT-', enable_events=True, font=font_string, size=(len(max(voice_list, key = len)), 1)) ] ]
     
-    col_dir_play =  [   [ sg.Text('New Phrase:', font=font_string), sg.Input('A new phrase.', key='-INPUT-', font=font_string, s=(30,2)), sg.Button('Play', key='-PLAY-', font=font_string, s=(5,1)), sg.Button('Assign', font=font_string, key='-ASSIGN-', s=(5,1)) ] ]
+    col_dir_play =  [   [ sg.Text('New Phrase:', font=font_string), sg.Input('A new phrase.', key='-INPUT-', font=font_string, s=(40,2))], [sg.Button('Play', key='-PLAY-', font=font_string, s=(5,1)), sg.Button('Assign', font=font_string, key='-ASSIGN-', s=(5,1)) ] ]
 
     col_exit =  [   [sg.Button('Exit', key='-EXIT-', s=(5,1), font=font_string)]  ]
 
@@ -87,7 +89,7 @@ def main():
     # Dynamically add buttons to our columns
     col_to_use = 0
     for bt_key,bt_val in button_texts.items():
-        window.extend_layout( window[ column_keys[ col_to_use ] ], [[ sg.pin( sg.Button( bt_val, key=bt_key,s=macro_button_size, font=font_string) ) ]] )
+        window.extend_layout( window[ column_keys[ col_to_use ] ], [[ sg.pin( sg.Button( '\n'.join(textwrap.wrap(bt_val,macro_button_size[0])), key=bt_key,s=macro_button_size, font=font_string) ) ]] )
         #window.extend_layout( window[ column_keys[ col_to_use ] ], [[ sg.pin( sg.Input( bt_val, key=bt_key+input_key_extension,s=macro_button_size, font=font_string, expand_x=True,expand_y=True,visible=False ) ) ]] )        
         col_to_use = ( col_to_use + 1 ) % len( column_keys )
     
@@ -147,13 +149,13 @@ def main():
                 for bt_key,bt_val in button_texts.items():
                     window[bt_key].update(button_color = sg.theme_button_color())
                 button_texts[ event ] = window['-INPUT-'].get()
-                window[ event ].update( text= window['-INPUT-'].get() )
+                window[ event ].update( text= '\n'.join(textwrap.wrap( window['-INPUT-'].get(), macro_button_size[0]) ) )
                 with open(macro_file_name, 'w') as phrase_file:
                     phrase_file.write(json.dumps(button_texts))
             else:
                 # Random stack overflow on calling commands from python: https://stackoverflow.com/questions/14894993/running-windows-shell-commands-with-python
                 print("balcon -n " + speaker_name + " -t \"" + window[event].get_text() + "\"")
-                report_string = check_output("balcon -n \"" + speaker_name + "\" -t \"" + window[event].get_text() + "\"", shell=True).decode()
+                report_string = check_output("balcon -n \"" + speaker_name + "\" -t \"" + button_texts[ event ] + "\"", shell=True).decode()
         
 
     window.close()
