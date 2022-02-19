@@ -2,16 +2,43 @@ import PySimpleGUI as sg
 from subprocess import check_output
 from subprocess import call
 import json
+import re
 
 # To accomplish the text to speech aspect, this script uses the command line version of Balabolka
 # http://balabolka.site/bconsole.htm
 # Everything else can just be pulled from pip
 # Documentation for the UI suite used: https://pysimplegui.readthedocs.io/en/latest/
 
+def get_voice_list():
+    #Find our what speakers are allowed through the tool
+    report_string = check_output("balcon -l", shell=True).decode()
+    #Remove the title from the returned string.
+    intro_split = report_string.split(':')
+    intro_removed = intro_split.pop()
+    #Now split the content by line, as there's one voice per line
+    separated_list = intro_removed.splitlines()
+    #For each line, check to make sure the line isn't empty, then remove any commentary that trails a '-' or ','
+    final_list = [ ]
+    p = re.compile('(\s*)[-,].*')
+    for possible_voice in separated_list:
+        if not possible_voice or not possible_voice.strip():
+            continue
+        post_strip = p.sub(' ', possible_voice)
+        final_list.append( post_strip.strip() )
+    return final_list
+
 def main():
     # Global constants that make sense to leave in one accessible place.
-    macro_button_size = (30,4)
-    speaker_name = 'Zira'
+    macro_button_size = (30,2)
+    assign_mode_button_color = ('#000000', '#ffdddd')
+    font_to_use = "Helvetica "
+    font_size = 24
+    font_string = font_to_use + str( int( font_size ) )
+    voice_list = get_voice_list()
+    preferred_speaker = 'Katherine'
+    #I love this kind of construction in Python. Create an iterator consisting of the elements in the speaker list
+    #that contain the preferred speaker, then grab the first. Failing that, grab the first element of the speaker list.
+    speaker_name = next((s for s in voice_list if preferred_speaker in s), voice_list[0] if len(voice_list) > 0 else 'Katherine' )
     
     # Add a touch of color
     sg.theme('DarkAmber')   
@@ -34,23 +61,25 @@ def main():
                             '-MACRO9-':'I\'ve been good, how are you?' }
     
     # Phrases are distributed across column keys, so adding to this list should expand the num of columns frictionlessly.
-    column_keys =   [   '-COL_LEFT-', '-COL_CENTER-', '-COL_RIGHT-' ]
-    # Buttons and input widgets are connected by a common key, save that the inputs have this extension to keep them separate.
-    input_key_extension = 'INPUT-'
+    #column_keys =   [   '-COL_LEFT-', '-COL_CENTER-', '-COL_RIGHT-' ]
+    column_keys =   [   '-COL_LEFT-', '-COL_RIGHT-' ]
 
+    col_vo_sel =    [   [ sg.Text('Voice:', font=font_string), sg.Combo(voice_list, default_value=speaker_name, expand_y=True, key='-VOICE-SELECT-', enable_events=True, font=font_string, size=(len(max(voice_list, key = len)), 1)) ] ]
     
-    #Our layout is simple. The phrases arranged in columns up top, with an edit mode toggle and exit button centered below.
-    col_modality =  [   [sg.Text('Edit Mode'), sg.Button('', image_data=toggle_btn_off, key='-TOGGLE-GRAPHIC-', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0) ],
-                        [sg.Button('Exit', key='-EXIT-', s=(5,2))]  ]
+    col_dir_play =  [   [ sg.Text('New Phrase:', font=font_string), sg.Input('A new phrase.', key='-INPUT-', font=font_string, s=(30,2)), sg.Button('Play', key='-PLAY-', font=font_string, s=(5,1)), sg.Button('Assign', font=font_string, key='-ASSIGN-', s=(5,1)) ] ]
+
+    col_exit =  [   [sg.Button('Exit', key='-EXIT-', s=(5,1), font=font_string)]  ]
 
     #The canvas that serves at the initial element is part of the black-magic-attempts at making elements remember their position when they go visible and invisible. Same with the pins. I still don't understand them well enough.
     button_cols =   [   sg.Canvas(size=(0,0), pad=(0,0))    ]
     for a_col in column_keys:
-        button_cols.append( sg.pin( sg.Col( [[]], key=a_col ) ) )
+        button_cols.append( sg.pin( sg.Col( [[]], key=a_col, vertical_alignment='top' ), vertical_alignment='top' ) )
 
     layout =    [   button_cols,
                     [   sg.HorizontalSeparator()    ],
-                    [   sg.Col( col_modality, justification='c', element_justification='c' ) ]   ]
+                    [   sg.Col( col_vo_sel, justification='c', element_justification='c' ) ],
+                    [   sg.Col( col_dir_play, justification='c', element_justification='c' ) ],
+                    [   sg.Col( col_exit, justification='c', element_justification='c' ) ]   ]
     
     # Create the Window - note the finalize. The 'extend layout' calls don't work on unfinalized elements.
     window = sg.Window('Text To Speech Button Board', layout, finalize=True)
@@ -58,45 +87,74 @@ def main():
     # Dynamically add buttons to our columns
     col_to_use = 0
     for bt_key,bt_val in button_texts.items():
-        window.extend_layout( window[ column_keys[ col_to_use ] ], [[ sg.pin( sg.Button( bt_val, key=bt_key,s=macro_button_size ) ) ]] )
-        window.extend_layout( window[ column_keys[ col_to_use ] ], [[ sg.pin( sg.Input( bt_val, key=bt_key+input_key_extension,s=macro_button_size,expand_x=True,expand_y=True,visible=False ) ) ]] )        
+        window.extend_layout( window[ column_keys[ col_to_use ] ], [[ sg.pin( sg.Button( bt_val, key=bt_key,s=macro_button_size, font=font_string) ) ]] )
+        #window.extend_layout( window[ column_keys[ col_to_use ] ], [[ sg.pin( sg.Input( bt_val, key=bt_key+input_key_extension,s=macro_button_size, font=font_string, expand_x=True,expand_y=True,visible=False ) ) ]] )        
         col_to_use = ( col_to_use + 1 ) % len( column_keys )
     
     #set up initial state on any buttons
-    in_edit_mode = False
+    in_assign_mode = False
     
     # Event Loop to process events and get the values of the inputs
     while True:
         event, values = window.read()
         if event == sg.WIN_CLOSED or event == '-EXIT-': # if user closes window or clicks exit
             break
-        elif event == '-TOGGLE-GRAPHIC-':   # the graphical button that changes images
-            in_edit_mode = not in_edit_mode
-            window['-TOGGLE-GRAPHIC-'].update(image_data=toggle_btn_on if in_edit_mode else toggle_btn_off)
+        elif event == '-VOICE-SELECT-':
+            speaker_name = values[ '-VOICE-SELECT-' ]
+        if event == '-PLAY-':
+            report_string = check_output("balcon -n \"" + speaker_name + "\" -t \"" + window['-INPUT-'].get() + "\"", shell=True).decode()
+        elif event == '-ASSIGN-':   # the button that changes to assign mode
+            in_assign_mode = not in_assign_mode
+            window['-ASSIGN-'].update(button_color = (assign_mode_button_color if in_assign_mode else sg.theme_button_color()))
+            for bt_key,bt_val in button_texts.items():
+                window[bt_key].update(button_color = (assign_mode_button_color if in_assign_mode else sg.theme_button_color()))
+            #window['-ASSIGN-'].update(image_data=toggle_btn_on if in_assign_mode else toggle_btn_off)
             #When the button is toggled, cycle the states of our buttons and inputs.
-            for bt_key,bt_val in button_texts.items(): 
-                window[bt_key].update(disabled=in_edit_mode)
-                window[bt_key+input_key_extension].update(visible=in_edit_mode)
+            #for bt_key,bt_val in button_texts.items(): 
+            #    window[bt_key].update(disabled=in_assign_mode)
+            #    window[bt_key+input_key_extension].update(visible=in_assign_mode)
             # If we're leaving edit mode...
-            if not in_edit_mode:
+            #if not in_assign_mode:
                 # ...we need to copy our changes into the buttons
                 # We use a temporary dictionary as an intermediary because it's bad form to iterate over a dictionary you're changing
-                input_texts = {}
-                for bt_key in button_texts.keys():
-                    input_texts[ bt_key ] = window[bt_key+input_key_extension].get()
-                for bt_key in input_texts.keys():
-                    button_texts[ bt_key ] = input_texts[ bt_key ]
-                    window[bt_key].update(text=button_texts[ bt_key ])
+            #    input_texts = {}
+            #    for bt_key in button_texts.keys():
+            #        input_texts[ bt_key ] = window[bt_key+input_key_extension].get()
+            #    for bt_key in input_texts.keys():
+            #        button_texts[ bt_key ] = input_texts[ bt_key ]
+            #        window[bt_key].update(text=button_texts[ bt_key ])
                 # We also need to flush the new dictionary to file
-                with open(macro_file_name, 'w') as phrase_file:
-                    phrase_file.write(json.dumps(button_texts))
+            #    with open(macro_file_name, 'w') as phrase_file:
+            #        phrase_file.write(json.dumps(button_texts))
+        #elif event == '-TEXT-SIZE-SLIDER-':
+        #    new_font_size = values[ '-TEXT-SIZE-SLIDER-' ]
+        #    if font_size != new_font_size:
+        #        font_size = new_font_size
+        #        font_string = font_to_use + str( int( font_size ) )
+        #        window['-FONT-SIZE-DISPLAY-'].update(font=font_string)
+        #        window['-TEXT-SIZE-SLIDER-'].update(font_size)
+                #for bt_key,bt_val in button_texts.items():
+                #    window[bt_key].update(font=font_string)
+                    #window[bt_key+input_key_extension].update(font=font_string)
+
         
         # Finally, the most important part. If the button returned a click event (the only one that is normally reported), say the associated text!
         if event in button_texts:
-            print( "button clicked" + event + "text is " + window[event].get_text() )
-            # Random stack overflow on calling commands from python: https://stackoverflow.com/questions/14894993/running-windows-shell-commands-with-python
-            report_string = check_output("balcon -n " + speaker_name + " -t \"" + window[event].get_text() + "\"", shell=True).decode()
-
+            print( "Button Clicked: " + event + ", and the text is: " + window[event].get_text() )
+            if in_assign_mode:
+                in_assign_mode = False
+                window['-ASSIGN-'].update(button_color = sg.theme_button_color())
+                for bt_key,bt_val in button_texts.items():
+                    window[bt_key].update(button_color = sg.theme_button_color())
+                button_texts[ event ] = window['-INPUT-'].get()
+                window[ event ].update( text= window['-INPUT-'].get() )
+                with open(macro_file_name, 'w') as phrase_file:
+                    phrase_file.write(json.dumps(button_texts))
+            else:
+                # Random stack overflow on calling commands from python: https://stackoverflow.com/questions/14894993/running-windows-shell-commands-with-python
+                print("balcon -n " + speaker_name + " -t \"" + window[event].get_text() + "\"")
+                report_string = check_output("balcon -n \"" + speaker_name + "\" -t \"" + window[event].get_text() + "\"", shell=True).decode()
+        
 
     window.close()
 
@@ -117,15 +175,23 @@ if __name__ == '__main__':
     #window.extend_layout( window[column_keys[0]], [[ sg.Button( "Extension!", key="-EXTENSION-", s=macro_button_size ) ]] )
 
 #[   sg.Col( [[ sg.Text('SpacerButton', s=macro_button_size) ]], key='SPACER'), sg.Canvas(size=(0,0), pad=(0,0)) ],
-                    #            window['SPACER'].update(visible=not in_edit_mode)
+                    #            window['SPACER'].update(visible=not in_assign_mode)
                     
  #                   '''for bt_key,bt_val in button_texts.items():
- #               window[bt_key].update(visible= not in_edit_mode)
- #               window[bt_key+input_key_extension].update(visible=in_edit_mode)'''
+ #               window[bt_key].update(visible= not in_assign_mode)
+ #               window[bt_key+input_key_extension].update(visible=in_assign_mode)'''
 # for col_val in column_keys:
-#                window[col_val+input_key_extension].update(visible=in_edit_mode)
+#                window[col_val+input_key_extension].update(visible=in_assign_mode)
 
     
     
 #                        sg.pin( sg.Col( [[]], key=column_keys[1]) ),  
 #                        sg.pin( sg.Col( [[]], key=column_keys[2]) ),
+
+
+    # Buttons and input widgets are connected by a common key, save that the inputs have this extension to keep them separate.
+    #input_key_extension = 'INPUT-'
+    
+    #, sg.Text('Text Size'), sg.Slider(range=(12,64), default_value=font_size, orientation='h', size=(10,20), #change_submits=True, key='-TEXT-SIZE-SLIDER-', font=font_string), sg.Text("Aa", size=(2, 1), font=font_string, #key='-FONT-SIZE-DISPLAY-' )
+    
+    #[sg.Text('Edit Mode'), sg.Button('', image_data=toggle_btn_off, key='-TOGGLE-GRAPHIC-', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0) ],
